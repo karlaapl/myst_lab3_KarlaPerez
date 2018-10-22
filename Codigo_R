@@ -1,0 +1,153 @@
+# -- Borrar todos los elementos del environment
+rm(list=ls())
+mdir <- getwd()
+suppressMessages(library(TTR)) 
+# -- Establecer el sistema de medicion de la computadora
+Sys.setlocale(category = "LC_ALL", locale = "")
+
+# -- Huso horario
+Sys.setenv(tz="America/Monterrey", TZ="America/Monterrey")
+options(tz="America/Monterrey", TZ="America/Monterrey")
+
+# -- Cargar y/o instalar en automatico paquetes a utilizar -- #
+
+pkg <- c("base","downloader","dplyr","fBasics","forecast","grid",
+         "gridExtra","httr","jsonlite","lmtest","lubridate","moments",
+         "matrixStats", "PerformanceAnalytics","plyr","quantmod",
+         "reshape2","RCurl","RMySQL", "stats","scales","tseries",
+         "TTR","TSA","XML","xts","zoo")
+
+inst <- pkg %in% installed.packages()
+if(length(pkg[!inst]) > 0) install.packages(pkg[!inst])
+instpackages <- lapply(pkg, library, character.only=TRUE)
+
+# -- Cargar archivos desde GitHub -- #
+
+RawGitHub <- "https://raw.githubusercontent.com/IFFranciscoME/"
+ROandaAPI <- paste(RawGitHub,"ROandaAPI/master/ROandaAPI.R",sep="")
+downloader::source_url(ROandaAPI,prompt=FALSE,quiet=TRUE)
+
+# -- Parametros para usar API-OANDA
+
+# Tipo de cuenta practice/live
+OA_At <- "practice"
+# ID de cuenta
+OA_Ai <- 1742531
+# Token para llamadas a API
+OA_Ak <- "ada4a61b0d5bc0e5939365e01450b614-4121f84f01ad78942c46fc3ac777baa6" 
+# Hora a la que se considera "Fin del dia"
+OA_Da <- 17
+# Uso horario
+OA_Ta <- "America/Mexico_City"
+# Instrumento
+OA_In <- "EUR_USD"
+# Granularidad o periodicidad de los precios H4 = Cada 4 horas
+OA_Pr <- "H4"
+# Multiplicador de precios para convertir a PIPS
+MultPIP_MT1 <- 10000
+
+Precios_Oanda <- HisPrices(AccountType = OA_At, Granularity = OA_Pr,
+                           DayAlign = OA_Da, TimeAlign = OA_Ta, Token = OA_Ak,
+                           Instrument = OA_In, 
+                           Start = NULL, End = NULL, Count = 900)
+
+Historico = data_frame("Date"= Precios_Oanda$TimeStamp,
+                  "Precio_Open"= Precios_Oanda$Open,
+                  "Precio_Close"= Precios_Oanda$Close,
+                  "SMA 7" =SMA(Precios_Oanda$Close,n=7),
+                  "Balance" = 0,
+                  "Unidades" = 0,
+                  "Unidades_A"= 0,
+                  "Operacion" = NA, "Ganancia" = 0,"Mensaje" = NA)
+                  
+                
+
+PIP <- 10000 # tamaño del PIP o multiplicador
+PiV <- 1 #1Usd 
+
+
+# -- ----------------------------------------------------------------------------------------- -- #
+# -- ----------------------------------------------------------------------------------------- -- #
+# -- ----------------------------------------------------------------------------------------- -- #
+
+# -- Calcular los Unidades de posicion inicial
+Historico$`SMA 7`[1:7] <- 0
+Historico$Unidades[1] <- PIP
+Historico$Unidades_A[1] <- PIP
+
+
+
+# -- Calcular el Balance
+
+
+# -- T registrado en la cuenta de efectivo.
+Historico$Ganancia[1] <- (Historico$Precio_Close[1]-Historico$Precio_Open[1])*PIP
+Historico$Balance[1] <- Historico$Ganancia[1]
+
+# -- Iniciamos con una postura de mantener.
+Historico$Operacion[1] <- "Posicion Inicial"
+
+# -- Mensaje inicial
+Historico$Mensaje[1] <- "Inicializacion de cartera"
+
+
+
+# -- ------------------------------------ -- #
+# -- ------------------------------------ -- #
+# -- ------------------------------------ -- #
+
+for(i in 2:length(Historico$Date)){
+
+  if(Historico$Precio_Close[i] > Historico$`SMA 7`[i]){ # Generar Se?al
+    
+    # Establecer capital actual, inicialmente, igual al capital anterior
+    Historico$Balance[i] <- Historico$Balance[i-1]
+    Historico$Unidades[i] <- PIP
+    Historico$Ganancia[i] <-(Historico$Precio_Close[i]-Historico$Precio_Open)*PIP
+    Historico$Balance[i] <- Historico$Balance[i-1]+Historico$Ganancia[i]
+    Historico$Operacion[i] <-"Compra"
+    Historico$Mensaje[i] <- "Compra"
+    Historico$Unidades_A[i] <- Historico$Unidades_A[i-1]+Historico$Unidades[i]}
+    
+  else if(Historico$Precio_Close[i] < Historico$`SMA 7`[i]){ # Si hay capital
+    Historico$Balance[i] <- Historico$Balance[i-1]
+    Historico$Unidades[i] <- PIP
+    Historico$Ganancia[i] <-(Historico$Precio_Open[i]-Historico$Precio_Close)*PIP
+    Historico$Balance[i] <- Historico$Balance[i-1]-Historico$Ganancia[i]
+    Historico$Operacion[i] <-"Venta"
+    Historico$Mensaje[i] <- "Venta"
+    Historico$Unidades_A[i] <- Historico$Unidades_A[i-1]-Historico$Unidades[i]}
+  
+   
+    else { # No hubo diferencia
+      
+      Historico$Balance[i] <- Historico$Balance[i-1]
+      Historico$Unidades[i] <- 0
+      Historico$Ganancia[i] <-Historico$Ganancia[i-1]
+      Historico$Balance[i] <- Historico$Balance[i-1]
+      Historico$Operacion[i] <-"Mantuvo"
+      Historico$Mensaje[i] <- "No hubo movimiento"
+      Historico$Unidades_A[i] <- Historico$Unidades_A[i-1]
+    }
+    
+    
+ 
+  
+}
+# plot_ly(Historico) %>%
+#   
+#   add_trace(x = Historico[,1], y = ~round(Historico[,3]), type = 'scatter', mode = 'lines', name = 'Precio',
+#             
+#             line = list(color = 'blue'), hoverinfo = "text", text = ~paste('Precio',round(Historico[,2]))) %>%
+#   
+#   add_trace(x = Historico[,1], y = ~round(Historico[,4]), type = 'scatter', mode = 'lines', name = 'SMA 28',
+#             
+#             line = list(color = 'aquamarine'), hoverinfo = "text", text = ~paste('SMA 7 ',round(Historico[,3])))  %>%
+#   
+#   layout(title = "Regla de Tradding ",
+#          
+#          xaxis = list(title = "Fechas", showgrid = T),
+#          
+#          yaxis = list(title = "Precios"), 
+#          
+#          legend = list(orientation = 'h', y = -0.25, x = 0.5))
