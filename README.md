@@ -7,3 +7,4 @@ Las variables que se necesitan:
 -Precio de apertura del EUR/USD.
 -Precio de cierre ajustado  del EUR/USD.
 -Tamaño de operación- 10000 para considerar PIP de 1 usd.
+
